@@ -8,4 +8,4 @@ open System.Net
 open Proxies
 
 let proxy = ProxyGenerator().ProxyFromType<HttpListenerRequest>("Request")
-File.WriteAllText(@"c:\Projekty\proxy.fs", proxy)
+File.WriteAllText(@"c:\Projekty\request.fs", proxy)
