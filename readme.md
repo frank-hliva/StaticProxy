@@ -9,6 +9,7 @@ https://github.com/frank-hliva/StaticProxy/blob/master/LICENSE.md
 ## Example:
 
 ```fs
+open System
 open System.IO
 open System.Net
 open Proxies
