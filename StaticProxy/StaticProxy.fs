@@ -1,5 +1,5 @@
 ﻿[<RequireQualifiedAccess>]
-module StaticProxy
+module Proxies.StaticProxy
 
 open System
 open System.Reflection
@@ -17,25 +17,35 @@ module private Interface =
     let getProperties<'t> =
         typedefof<'t>.GetProperties(flags)
 
-let private typeName = function
-| "Void" -> "unit"
-| t -> t
+let rec private typeName (fullName : bool) (t : Type) =
+    (match if fullName then t.FullName else t.Name with
+    | "Void" | "System.Void" -> "unit"
+    | name -> name
+    |> fun name -> 
+        match name.IndexOf("`") with
+        | -1 -> name
+        | i -> name.[..i - 1]) +
+    if t.IsConstructedGenericType then
+        t.GenericTypeArguments
+        |> Seq.map(fun t -> t |> typeName fullName)
+        |> fun args -> sprintf "<%s>" (String.Join(", ", args))
+    else ""
 
-let private generateParameters (withType : bool) (mi : MethodInfo) =
+let private generateParameters (settings : ProxySettings) (withType : bool) (mi : MethodInfo) =
     let template = if withType then "{0} : {1}" else "{0}"
     mi.GetParameters()
-    |> Seq.map(fun p -> String.Format(template, p.Name, p.ParameterType.Name |> typeName))
+    |> Seq.map(fun p -> String.Format(template, p.Name, p.ParameterType |> typeName settings.FullNames))
     |> fun p -> String.Join(", ", p)
 
-let private generateMethod (objectName : string) (mi : MethodInfo) =
-    let typedParameters = mi |> generateParameters true
-    let parameters = mi |> generateParameters false
-    let returnType = mi.ReturnType.Name |> typeName
+let private generateMethod (settings : ProxySettings) (mi : MethodInfo) =
+    let typedParameters = mi |> generateParameters settings true
+    let parameters = mi |> generateParameters settings false
+    let returnType = mi.ReturnType |> typeName settings.FullNames
     String.Format("    member this.{0}({1}) : {2} = {4}.{0}({3})",
-        mi.Name, typedParameters, returnType, parameters, objectName)
+        mi.Name, typedParameters, returnType, parameters, settings.ObjectName)
 
-let private generateProperty (objectName : string) (pi : PropertyInfo) =
-    let propertyType = pi.PropertyType.Name |> typeName
+let private generateProperty (settings : ProxySettings) (pi : PropertyInfo) =
+    let propertyType = pi.PropertyType |> typeName settings.FullNames
     let gs =
         match pi with
         | p when p.CanRead && p.CanWrite -> "with get() : {1} = {2}.{0} and set(value : {1}) = {2}.{0} <- value"
@@ -43,14 +53,17 @@ let private generateProperty (objectName : string) (pi : PropertyInfo) =
         | p when p.CanWrite -> "with set(value : {1}) = {2}.{0} <- value"
         | _ -> failwith "invalid property"
     String.Format(sprintf "    member this.{0} %s" gs,
-        pi.Name, propertyType, objectName)
+        pi.Name, propertyType, settings.ObjectName)
 
-let private generateProxy<'t> (className : string) (objectName : string) (lines : string seq) =
+let private generateProxy<'t> (settings : ProxySettings) (lines : string seq) =
     lines
-    |> Seq.distinctBy(fun l -> l)
+    |> Seq.distinct
     |> fun lines ->
         let lines = seq {
-            yield sprintf "type %s(%s : %s) =" className objectName (typedefof<'t>.Name)
+            yield sprintf "type %s(%s : %s) ="
+                settings.ProxyClassName
+                settings.ObjectName
+                (typedefof<'t>.Name)
             yield! lines }
         String.Join(Environment.NewLine, lines)
 
@@ -58,15 +71,21 @@ let private lcFirst = function
 | "" -> ""
 | str -> str.[0].ToString().ToLower() + str.[1..]
 
-let fromType<'t> (className : string) =
+let private initProxySettings<'t> (settings : ProxySettings) =
+    { settings with
+        ObjectName =
+            if String.IsNullOrEmpty(settings.ObjectName)
+            then typedefof<'t>.Name |> lcFirst
+            else settings.ObjectName }
+
+let fromType<'t> (settings : ProxySettings) =
+    let settings = settings |> initProxySettings<'t>
     let methods, props = Interface.getMethods<'t>, Interface.getProperties<'t>
-    let typeName = typedefof<'t>.Name
-    let objectName = typeName |> lcFirst
     seq [
         methods
         |> Seq.filter(fun mi -> not (ignoredMethods.Contains mi.Name))
-        |> Seq.map(fun mi -> mi |> generateMethod objectName)
-        props |> Seq.map(fun pi -> pi |> generateProperty objectName)
+        |> Seq.map(fun mi -> mi |> generateMethod settings)
+        props |> Seq.map(fun pi -> pi |> generateProperty settings)
     ]
     |> Seq.concat
-    |> generateProxy<'t> className objectName
+    |> generateProxy<'t> settings

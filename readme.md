@@ -11,7 +11,8 @@ https://github.com/frank-hliva/StaticProxy/blob/master/LICENSE.md
 ```fs
 open System.IO
 open System.Net
+open Proxies
 
-let proxy = StaticProxy.fromType<HttpListenerRequest> "Request"
-File.WriteAllText(@"proxy.fs", proxy)
+let proxy = ProxyGenerator().ProxyFromType<HttpListenerRequest>("Request")
+File.WriteAllText(@"c:\Projekty\proxy.fs", proxy)
 ```

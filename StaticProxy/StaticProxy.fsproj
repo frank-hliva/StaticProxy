@@ -43,7 +43,9 @@
     <Reference Include="System.Numerics" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Proxies.fs" />
     <Compile Include="StaticProxy.fs" />
+    <Compile Include="ProxyGenerator.fs" />
     <None Include="Example.fsx" />
   </ItemGroup>
   <PropertyGroup>
